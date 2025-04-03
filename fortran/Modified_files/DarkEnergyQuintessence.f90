@@ -17,7 +17,6 @@
     !It works backwards, in that it assumes Omega_de is Omega_Q today, then does a binary search on the
     !initial conditions to find what is required to give that Omega_Q today after evolution.
 
-    ! Modifications made by João Victor Rebouças, 2021, are tagged with JVR
     ! Essentially the TEarlyQuintessence class is rebuilt to be a general quintessence class
 
     module Quintessence
@@ -52,15 +51,15 @@
     procedure :: BackgroundDensityAndPressure => TQuintessence_BackgroundDensityAndPressure
     procedure :: EvolveBackground
     procedure :: EvolveBackgroundLog
-	procedure :: GetOmegaFromInitial ! JVR uncommented this function, which is written at the end of the file
+	procedure :: GetOmegaFromInitial !YX uncommented this function, which is written at the end of the file
     procedure, private :: phidot_start => TQuintessence_phidot_start
     end type TQuintessence
 
     ! Specific implementation for early quintessence + cosmologial constant, assuming the early component
     ! energy density fraction is negligible at z=0.
     ! The specific parameterization of the potential implemented is the axion model of arXiv:1908.06995
-    type, extends(TQuintessence) :: TEarlyQuintessence ! JVR Will rename the class later, but i will have to rename it in other .f90 files so be careful
-        real(dl) :: n = 3._dl ! JVR Won't use
+    type, extends(TQuintessence) :: TEarlyQuintessence !YX Will rename the class later, but i will have to rename it in other .f90 files so be careful
+        real(dl) :: n = 3._dl !YX Won't use
         real(dl) :: f =0.05 ! sqrt(8*pi*G)*f Won't use
         real(dl) :: m = 5d-54 !m in reduced Planck mass units won't use
         real(dl) :: theta_i = 3.1_dl !initial value of phi/f won't use
@@ -73,13 +72,13 @@
         real(dl), dimension(:), allocatable :: fde, ddfde !won't use
 
 
-		! JVR - my variables for quintessence
+		!YX - my variables for quintessence
 		logical :: output_background_phi = .false. ! If the code should output a file with the scalar field evolution, phi(a). This is determined by the inifile.
 		character(len=50) :: output_background_phi_filename ! The name of the file mentioned above, also determined in the inifile
 		logical :: search_for_initialphi = .false. ! If the code should output a file with Omega_de x initial_phi and stop. Good for debugging/testing potentials and the binary search
 		integer :: potential_type = 1 ! This sets which potential we're using. Check the function Vofphi
 		real(dl) :: potentialparams = 3d-61 ! Potential parameters
-        ! JVR - finished declaring my variables
+        !YX - finished declaring my variables
     contains
     procedure :: Vofphi => TEarlyQuintessence_VofPhi
     procedure :: Init => TEarlyQuintessence_Init
@@ -125,7 +124,7 @@
     class(TQuintessence), intent(inout) :: this
     class(TCAMBdata), intent(in), target :: State
 
-    ! JVR - This function does three things:
+    !YX - This function does three things:
     ! 1 - Takes State (which is a class that carries information for all of the other variables) and passes it to the quintessence class so I can use
     ! quantities related to other variables (e.g. this%state%grho_no_de calculates the energy of all of the other components);
     ! 2 - Sets the is_cosmological_constant flag to false;
@@ -199,11 +198,11 @@
     real(dl) a, a2, tot
     real(dl) phi, grhode, phidot, adot			
 
-    a2=a**2	! JVR - Remember that in CAMB notation dots denote derivatives with respect to conformal time
+    a2=a**2	!YX - Remember that in CAMB notation dots denote derivatives with respect to conformal time
     phi = y(1)
     phidot = y(2)/a2
 
-    grhode=a2*(0.5d0*phidot**2 + a2*this%Vofphi(phi,0)) ! JVR - This is 8*pi*G*a^4*rho. Normally, this would be 8*pi*G*a^4(psi'^2/2a^2 + V). But putting the 8*pi*G factor inside, then:
+    grhode=a2*(0.5d0*phidot**2 + a2*this%Vofphi(phi,0)) !YX - This is 8*pi*G*a^4*rho. Normally, this would be 8*pi*G*a^4(psi'^2/2a^2 + V). But putting the 8*pi*G factor inside, then:
 														! grhode = a^2*(phi'^2/2a^2 + 8*pi*G*V), where psi is the field in Mpc^-1 units and phi is the field in natural units
 														! Vofphi(phi,0) already returns 8*pi*G*V.
 														! Finally, remember that the Friedmann equation is a' = a^2 * sqrt(8*pi*G*rho/3), which is written down below
@@ -211,12 +210,12 @@
 
     adot=sqrt(tot/3.0d0)
     yprime(1)=phidot/adot ! d phi /d a
-    yprime(2)= -a2**2*this%Vofphi(phi,1)/adot		! JVR - Is this right?
+    yprime(2)= -a2**2*this%Vofphi(phi,1)/adot		!YX - Is this right?
 
     end subroutine EvolveBackground
 
 
-    real(dl) function TQuintessence_phidot_start(this,phi) ! JVR - I won't change this but it may be interesting to leave this here.
+    real(dl) function TQuintessence_phidot_start(this,phi) !YX - I won't change this but it may be interesting to leave this here.
     class(TQuintessence) :: this
     real(dl) :: phi
 
@@ -225,7 +224,7 @@
     end function TQuintessence_phidot_start
 
     subroutine ValsAta(this,a,aphi,aphidot)
-    ! JVR - This function can be used to get phi(a) and phidot(a) by interpolation. When the Init function is called it evolves the background field
+    !YX - This function can be used to get phi(a) and phidot(a) by interpolation. When the Init function is called it evolves the background field
     ! so we get a grid of points phi(a_i). This function interpolates over the numerically integrated points.
     class(TQuintessence) :: this
     !Do interpolation for background phi and phidot at a (precomputed in Init)
@@ -287,11 +286,11 @@
     real(dl) clxq, vq, phi, phidot
 
     call this%ValsAta(a,phi,phidot) ! wasting time calling this again..
-    clxq=y(w_ix) ! JVR - clxq = \delta \phi is the field perturbation
+    clxq=y(w_ix) !YX - clxq = \delta \phi is the field perturbation
     vq=y(w_ix+1)
     ayprime(w_ix)= vq
     ayprime(w_ix+1) = - 2*adotoa*vq - k*z*phidot - k**2*clxq - a**2*clxq*this%Vofphi(phi,2)
-    ! JVR - This is the quintessence perturbation equation in synchronous gauge (check my notes on scalar fields!)
+    !YX - This is the quintessence perturbation equation in synchronous gauge (check my notes on scalar fields!)
     end subroutine TQuintessence_PerturbationEvolve
 
     ! Early Quintessence example, axion potential from e.g. arXiv: 1908.06995
@@ -302,7 +301,7 @@
 	!(the (8*pi*G)^(1-deriv/2) term is because of the chain rule, since the differentiation we are performing is in the variable (phi/Mpl) = (8*pi*G)^(1/2)*phi)
     !return result is in 1/Mpc^2 units [so times (Mpc/c)^2 to get units in 1/Mpc^2]
 
-	! JVR - Recipe to input your potential (not 100% sure about this, check units):
+	!YX - Recipe to input your potential (not 100% sure about this, check units):
 	! 1. Write your potential in natural units (hbar = 8*Pi*G = c = 1). The field phi has units of mass and the potential has units of mass^4
 	! 2. Calculate the derivatives in natural units (d/d(phi))
 	! 3. Multiply your result by units and you're done!
@@ -458,8 +457,8 @@
 	real(dl) :: astart, atol, deltaphi, initial_phi2, om, om1, om2, phi_small, phi_large, phi, phistep, initialexp ! variables to find good initial conditions
 	real(dl) :: om_small, om_large
 	logical :: OK
-	real(dl) :: w_phi ! JVR - equation of state
-	real(dl) :: fmatter, frad ! JVR - matter and radiation fractions. Since the background is evolved here I can output the energy fractions
+	real(dl) :: w_phi !YX - equation of state
+	real(dl) :: fmatter, frad !YX - matter and radiation fractions. Since the background is evolved here I can output the energy fractions
 
     !Make interpolation table, etc,
     !At this point massive neutrinos have been initialized
@@ -482,7 +481,7 @@
     astart=1d-9
     atol=1d-8
 	if (this%search_for_initialphi .eqv. .true.) then
-        ! JVR - This code bit outputs omega_phi in terms of initial_phi and stops the code. This is done in order to calibrate the binary search initial window and to
+        !YX - This code bit outputs omega_phi in terms of initial_phi and stops the code. This is done in order to calibrate the binary search initial window and to
         ! check if there are ambiguities in the initial conditions
         open(unit=13, file='initialphisearch2.txt', form='formatted',status='replace')
         
@@ -500,7 +499,7 @@
     end if
 
 
-    ! JVR - Binary search algorithm. This is an important step of the code. The current energy density of the field (and therefore Omega_de)
+    !YX - Binary search algorithm. This is an important step of the code. The current energy density of the field (and therefore Omega_de)
     ! are determined by the initial conditions phi(astart), phidot(astart). Since the Hubble friction 3Hphidot can be arbitrarily large, any initial
     ! field velocity is dissipated and the initial kinetic energy is negligible (check my notes on initial conditions). Thus, the current quintessence
     ! energy density is determined by phi(astart). The dark energy density parameter is set by the condition Omega_de = 1 - Omega_k - Omega_matter - Omega_radiation - ...
@@ -508,8 +507,8 @@
     ! we do a binary search (also known as the bissection method for finding roots of equations).
 
     ! Set initial conditions to give correct Omega_de now
-    ! JVR - The initial window is important because it needs to encompass the correct value (assuming there is only one, but it may not be true)
-    initial_phi  = 0.01_dl  ! JVR - Remember that this is in Mpl
+    !YX - The initial window is important because it needs to encompass the correct value (assuming there is only one, but it may not be true)
+    initial_phi  = 0.01_dl  !YX - Remember that this is in Mpl
     initial_phi2 = 100._dl
     
     initial_phidot =  astart*this%phidot_start(initial_phi)
@@ -517,14 +516,14 @@
 
     print*, 'Target omega_de: ', this%state%Omega_de, 'First trial:', om1, 'Second trial:', om2
     if (abs(om1 - this%state%Omega_de) > this%omega_tol) then 
-        ! JVR - If our initial guess is not good, enter the algorithm
+        !YX - If our initial guess is not good, enter the algorithm
         OK=.false.
         initial_phidot = astart*this%phidot_start(initial_phi2)
         om2= this%GetOmegaFromInitial(astart,initial_phi2,initial_phidot, atol)
 
         if ((om1 < this%state%Omega_de .and. om2 < this%state%Omega_de) .or. &
 		 (om1 > this%state%Omega_de .and. om2 > this%state%Omega_de)) then
-			! JVR - The bissection algorithm only works if one of the window boundaries is below the required value and
+			!YX - The bissection algorithm only works if one of the window boundaries is below the required value and
 			! the other is above the required value. If this is not the case, adjust the window.
             write (*,*) 'The initial phi window must bracket required value: ', this%state%Omega_de
             write (*,*) 'om1, om2 = ', real(om1), real(om2)
@@ -543,7 +542,7 @@
 			om_large = om1
 		end if
 
-        do iter=1,100 ! JVR - Dividing the window in half 100 times. The code should leave the loop way before the last iteration
+        do iter=1,100 !YX - Dividing the window in half 100 times. The code should leave the loop way before the last iteration
             deltaphi = phi_large - phi_small ! Window size
             phi = phi_small + deltaphi/2 ! Middle value
             initial_phidot =  astart*this%phidot_start(phi)
@@ -555,7 +554,7 @@
                 om_large=om
                 phi_large=phi
             end if
-            if (abs(om_large-om_small) < 1d-3) then ! JVR - The omega tolerance is 10^(-3)
+            if (abs(om_large-om_small) < 1d-3) then !YX - The omega tolerance is 10^(-3)
                 OK=.true.
                 initial_phi = (phi_small + phi_large)/2
                 if (FeedbackLevel > 0) write(*,*) 'phi_initial = ',initial_phi, 'omega = ', this%GetOmegaFromInitial(astart, initial_phi, 0._dl, atol)
@@ -600,7 +599,7 @@
         phi_a(ix)=y(1)
         phidot_a(ix)=y(2)/a2
 
-        ! JVR - fde is the dark energy fraction
+        !YX - fde is the dark energy fraction
         fde(ix) = 1/((this%state%grho_no_de(sampled_a(ix)) +  this%frac_lambda0*this%State%grhov*a2**2) &
             /(a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))) + 1)
 
@@ -693,7 +692,7 @@
     end function check_error
 
     subroutine TEarlyQuintessence_ReadParams(this, Ini)
-    ! JVR - This function reads information from the inifile.
+    !YX - This function reads information from the inifile.
     use IniObjects
     class(TEarlyQuintessence) :: this
     class(TIniFile), intent(in) :: Ini
