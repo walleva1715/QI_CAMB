@@ -209,7 +209,7 @@
 
     adot=sqrt(tot/3.0d0)
     yprime(1)=phidot/adot ! d phi /d a
-    yprime(2)= -a2**2*this%Vofphi(phi,1)/adot		!   - Is this right?
+    yprime(2)= -a*phidot -a2**2*this%Vofphi(phi,1)/adot		!   - Is this right?
 
     end subroutine EvolveBackground
 

@@ -1,6 +1,6 @@
 from .baseconfig import F2003Class, fortran_class, numpy_1d, CAMBError, np, \
     AllocatableArrayDouble, f_pointer
-from ctypes import c_int, c_double, byref, POINTER, c_bool
+from ctypes import c_int, c_double, byref, POINTER, c_bool, c_char
 
 
 class DarkEnergyModel(F2003Class):
@@ -186,24 +186,62 @@ class EarlyQuintessence(Quintessence):
         ("min_steps_per_osc", c_int, "minimumum number of steps per background oscillation scale"),
         ("fde", AllocatableArrayDouble, "after initialized, the calculated backgroundearly dark energy "
                                         "fractions at sampled_a"),
-        ("__ddfde", AllocatableArrayDouble)
-        #("potentialparams", c_double, "potential parameter") #Potential modification
+        ("__ddfde", AllocatableArrayDouble),
+        ("output_background_phi", c_bool, "flag to output background phi evolution"),
+        ("output_background_phi_filename", c_char*50, "filename for background phi output"),
+        ("search_for_initialphi", c_bool, "flag to search for initial phi"),
+        ("potential_type", c_int, "potential type for quintessence"),
+        ("potentialparams", numpy_1d, "array of potential parameters")
     ]
     _fortran_class_name_ = 'TEarlyQuintessence'
 
-    def set_params(self, n, f=0.05, m=5e-54, theta_i=0.0, use_zc=True, zc=None, fde_zc=None): #Potential modification
+    def set_params(self, n, f=0.05, m=5e-54, theta_i=0.0, use_zc=True, zc=None, fde_zc=None,
+                   potential_type=7, potentialparams=None,
+                   output_background_phi=False, output_background_phi_filename=None,
+                   search_for_initialphi=False):
+        """
+        Configure early quintessence model parameters.
+        :param n: exponent for potential
+        :param f: scale factor
+        :param m: mass parameter
+        :param theta_i: initial field angle
+        :param use_zc: whether to use zc and fde_zc
+        :param zc: redshift of peak dark energy fraction
+        :param fde_zc: fraction of dark energy at peak
+        :param potential_type: integer selecting potential form (default=7 general exponential, use 8 for double exponential)
+        :param potentialparams: list or array of parameters for chosen potential
+        :param output_background_phi: enable writing phi(a) evolution to file
+        :param output_background_phi_filename: output filename for phi(a)
+        :param search_for_initialphi: enable diagnostic search for initial phi
+        """
         self.n = n
         self.f = f
         self.m = m
         self.theta_i = theta_i
         self.use_zc = use_zc
-        #self.potentialparam1 = potentialparam1
         if use_zc:
             if zc is None or fde_zc is None:
                 raise ValueError("must set zc and fde_zc if using use_zc")
             self.zc = zc
             self.fde_zc = fde_zc
+        # set potential selection
+        self.potential_type = potential_type
+        if potentialparams is not None:
+            arr = np.ascontiguousarray(potentialparams, dtype=np.float64)
+            self.potentialparams = arr
+        # set output controls
+        self.output_background_phi = output_background_phi
+        if output_background_phi_filename is not None:
+            # ensure string fits 50 chars
+            fname = str(output_background_phi_filename)[:50]
+            self.output_background_phi_filename = fname
+        self.search_for_initialphi = search_for_initialphi
+        return self
 
 
 # short names for models that support w/wa
-F2003Class._class_names.update({'fluid': DarkEnergyFluid, 'ppf': DarkEnergyPPF})
+F2003Class._class_names.update({
+    'fluid': DarkEnergyFluid,
+    'ppf': DarkEnergyPPF,
+    'early': EarlyQuintessence
+})
