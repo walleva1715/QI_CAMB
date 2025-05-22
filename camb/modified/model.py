@@ -584,68 +584,21 @@ class CAMBparams(F2003Class):
         if recombination_model:
             self.Recomb = self.make_class_named(recombination_model, RecombinationModel)
 
-    def set_dark_energy(self, w=-1.0, cs2=1.0, wa=0, dark_energy_model='fluid', **kwargs):
+    def set_dark_energy(self, w=-1.0, cs2=1.0, wa=0, dark_energy_model='fluid'):
         r"""
         Set dark energy parameters (use set_dark_energy_w_a to set w(a) from numerical table instead)
         To use a custom dark energy model, assign the class instance to the DarkEnergy field instead.
 
-        :param w: :math:`w\equiv p_{\\rm de}/\\rho_{\\rm de}`, assumed constant
+        :param w: :math:`w\equiv p_{\rm de}/\rho_{\rm de}`, assumed constant
         :param wa: evolution of w (for dark_energy_model=ppf)
         :param cs2: rest-frame sound speed squared of dark energy fluid
-        :param dark_energy_model: model to use ('fluid', 'ppf', or 'early'), default is 'fluid'
-        :param kwargs: additional parameters by model:
-        
-        For dark_energy_model='early' (quintessence):
-            potentialparams: List of parameters for double exponential potential [V0, alpha, n, V1, beta]
-            output_background_phi: Enable outputting background evolution
-            output_background_phi_filename: Output filename
-            
+        :param dark_energy_model: model to use ('fluid' or 'ppf'), default is 'fluid'
         :return: self
         """
-        # allow passing a DarkEnergyModel instance directly
-        if isinstance(dark_energy_model, DarkEnergyModel):
-            self.DarkEnergy = dark_energy_model
-            # Always make sure search_for_initialphi is False for EarlyQuintessence
-            if hasattr(self.DarkEnergy, 'search_for_initialphi'):
-                self.DarkEnergy.search_for_initialphi = False
-        else:
-            # instantiate the correct dark energy model (fluid, ppf, or quintessence)
-            de = self.make_class_named(dark_energy_model, DarkEnergyModel)
-            
-            # Special handling for early quintessence
-            if dark_energy_model == 'early':
-                # Handle parameter ordering and initialization
-                if 'potential_type' in kwargs:
-                    # Remove potential_type parameter (ignored, always using double exponential)
-                    kwargs.pop('potential_type')
-                    
-                # Handle potentialparams properly - ensure it's initialized
-                if 'potentialparams' in kwargs:
-                    params = kwargs.pop('potentialparams')
-                    if params is not None:
-                        params = np.asarray(params, dtype=np.float64).flatten()
-                        for i in range(min(len(params), 5)):
-                            de.potentialparams[i] = params[i]
-                
-                # Make sure the rest of parameters are properly set
-                # Removed premature handling of output_background_phi and output_background_phi_filename
-                # as EarlyQuintessence.set_params already handles them.
-                
-                # Always set search_for_initialphi to False
-                de.search_for_initialphi = False
-                
-                # Pass any remaining kwargs to set_params
-                if kwargs:
-                    de.set_params(**kwargs)
-            else:
-                # Non-quintessence models use standard method
-                if isinstance(de, DarkEnergyEqnOfState):
-                    de.set_params(w=w, wa=wa, cs2=cs2, **kwargs)
-                else:
-                    de.set_params(**kwargs)
-                    
-            self.DarkEnergy = de
-            
+
+        de = self.make_class_named(dark_energy_model, DarkEnergyEqnOfState)
+        de.set_params(w=w, wa=wa, cs2=cs2)
+        self.DarkEnergy = de
         return self
 
     def set_dark_energy_w_a(self, a, w, dark_energy_model='fluid'):

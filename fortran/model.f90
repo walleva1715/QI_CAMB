@@ -146,7 +146,7 @@
         real(dl)  :: Nu_mass_degeneracies(max_nu)
         real(dl)  :: Nu_mass_fractions(max_nu) !The ratios of the total densities
         integer   :: Nu_mass_numbers(max_nu) !physical number per eigenstate
-        real(dl)  :: nu_0 = 0._dl ! friction parameter
+        !real(dl)  :: nu_0 = 0._dl ! friction parameter
 
         class(TInitialPower), allocatable :: InitPower
         class(TRecombinationModel), allocatable :: Recomb

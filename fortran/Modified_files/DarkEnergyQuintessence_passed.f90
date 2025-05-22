@@ -75,7 +75,7 @@
 		logical :: output_background_phi = .false. ! If the code should output a file with the scalar field evolution, phi(a). This is determined by the inifile.
 		character(len=50) :: output_background_phi_filename ! The name of the file mentioned above, also determined in the inifile
 		logical :: search_for_initialphi = .false. ! If the code should output a file with Omega_de x initial_phi and stop. Good for debugging/testing potentials and the binary search
-		!integer :: potential_type = 8 ! This sets which potential we're using. Check the function Vofphi
+		integer :: potential_type = 1 ! This sets which potential we're using. Check the function Vofphi
 		real(dl) :: potentialparams(5)  !Potential parameters
         !   - finished declaring my variables
     contains
@@ -298,7 +298,7 @@
     !The input variable phi is sqrt(8*Pi*G)*psi
     !Returns (8*Pi*G)^(1-deriv/2)*d^{deriv}V(psi)/d^{deriv}psi evaluated at psi
 	!(the (8*pi*G)^(1-deriv/2) term is because of the chain rule, since the differentiation we are performing is in the variable (phi/Mpl) = (8*pi*G)^(1/2)*phi)
-    !return result is in 1/Mpc^2 units [so times (Mpc/c)^2 to get units of 1/Mpc^2]
+    !return result is in 1/Mpc^2 units [so times (Mpc/c)^2 to get units in 1/Mpc^2]
 
 	!   - Recipe to input your potential (not 100% sure about this, check units):
 	! 1. Write your potential in natural units (hbar = 8*Pi*G = c = 1). The field phi has units of mass and the potential has units of mass^4
@@ -309,28 +309,151 @@
     class(TEarlyQuintessence) :: this
     real(dl) phi,Vofphi
     integer deriv
+    real(dl) theta, costheta
     real(dl), parameter :: units = MPC_in_sec**2 /Tpl**2  !convert to units of 1/Mpc^2 from natural units
-	real(dl) :: V_0, alpha, n, V_1, beta
+	real(dl) :: m, alpha ! mass for the harmonic potential/ general power law
+	integer :: n ! exponent for the generic power law V = m * phi**n
+	real(dl) :: V_0, beta, u, V_1
+!YX added potential
+	select case (this%potential_type)
+	case(0) ! Early quintessence
+		! Assume f = sqrt(kappa)*f_theory = f_theory/M_pl
+		! m = m_theory/M_Pl so m is in Mpl...
+		theta = phi/this%f
+		if (deriv==0) then
+		    Vofphi = units*this%m**2*this%f**2*(1 - cos(theta))**this%n + this%frac_lambda0*this%State%grhov !V(phi) = m²f²(1-cos(phi/f))^n
+		else if (deriv ==1) then
+		    Vofphi = units*this%m**2*this%f*this%n*(1 - cos(theta))**(this%n-1)*sin(theta)
+		else if (deriv ==2) then
+		    costheta = cos(theta)
+		    Vofphi = units*this%m**2*this%n*(1 - costheta)**(this%n-1)*(this%n*(1+costheta) -1)
+		end if
 
-    ! Double exponential potential: V(phi) = V0 * exp(alpha * phi^n) + V1 * exp(beta * phi)
-    V_0 = this%potentialparams(1)
-    alpha = this%potentialparams(2)
-    n = this%potentialparams(3)
-    V_1 = this%potentialparams(4)
-    beta = this%potentialparams(5)
-    
-    if (deriv == 0) then
-        ! Potential: V(phi)
-        Vofphi = units * V_0 * EXP(alpha * phi**n) + units * V_1 * EXP(beta * phi)
-    else if (deriv == 1) then
-        ! First derivative: dV/dphi
-        Vofphi = units * V_0 * n * EXP(alpha * phi**n) * alpha * phi**(n-1) + units * V_1 * beta * EXP(beta * phi) 
-    else if (deriv == 2) then
-        ! Second derivative: d²V/dphi²
-        Vofphi = units * V_0 * n**2 * EXP(alpha * phi**n) * alpha**2 * phi**(2*n-2) + &
-                 units * V_0 * n * (n-1) * EXP(alpha * phi**n) * alpha * phi**(n-2) + &
-                 units * V_1 * beta**2 * EXP(beta * phi)
-    end if
+	case(1) ! Harmonic potential - thawing, oscillates between w = -1 and w = 1 at late times (averaging to w = 0)
+		m = this%potentialparams(1)
+		if (deriv==0) then
+		    Vofphi = units*m**2*phi**2/2
+		else if (deriv ==1) then
+		    Vofphi = units*m**2*phi
+		else if (deriv ==2) then
+			Vofphi = units*m**2
+		end if
+
+	case(2) ! Inverse potential, V(phi) = M^5*phi^(-1) - Has a freezing behavior
+		m = this%potentialparams(1)
+		if (deriv==0) then
+			Vofphi = units * m**5/phi
+		else if (deriv ==1) then
+			Vofphi = - units * m**5/phi**2
+		else if (deriv ==2) then
+			Vofphi = units * 2*m**5/phi**3
+		end if
+
+	case(3)  ! Cubic potential, V(phi) = m*phi^3/3
+		m = this%potentialparams(1)
+		if (phi >= 0) then
+			if (deriv==0) then
+				Vofphi = m*phi**3/3
+			else if (deriv ==1) then
+				Vofphi = m*phi**2
+			else if (deriv ==2) then
+				Vofphi = 2*m*phi
+			end if
+		end if
+		if (phi < 0) then
+			if (deriv==0) then
+				Vofphi = -m*phi**3/3
+			else if (deriv ==1) then
+				Vofphi = -m*phi**2
+			else if (deriv ==2) then
+				Vofphi = -2*m*phi
+			end if
+		end if
+
+	case(4) ! Inverse square potential, V(phi) = M^5*phi^(-2) - Has a freezing behavior
+		m = this%potentialparams(1)
+		if (deriv==0) then
+			Vofphi = m/phi**2
+		else if (deriv ==1) then
+			Vofphi = -2*m/phi**3
+		else if (deriv ==2) then
+			Vofphi = 6*m/phi**4
+		end if
+
+	case(5)  ! General power law potential, V(phi) = m * phi**n
+		m = this%potentialparams(1)
+		n = int(this%potentialparams(2))
+		if (phi >= 0) then
+			if (deriv==0) then
+				Vofphi = m*phi**n
+			else if (deriv ==1) then
+				Vofphi = n*m*phi**(n-1)
+			else if (deriv ==2) then
+				Vofphi = n*(n-1)*m*phi**(n-2)
+			end if
+		end if
+		if (modulo(n,2) == 0) then
+			if (phi < 0) then
+				if (deriv==0) then
+					Vofphi = m*phi**n
+				else if (deriv ==1) then
+					Vofphi = n*m*phi**(n-1)
+				else if (deriv ==2) then
+					Vofphi = n*(n-1)*m*phi**(n-2)
+				end if
+			end if
+		else
+			if (phi < 0) then
+				if (deriv==0) then
+					Vofphi = -m*phi**n
+				else if (deriv ==1) then
+					Vofphi = -n*m*phi**(n-1)
+				else if (deriv ==2) then
+					Vofphi = -n*(n-1)*m*phi**(n-2)
+				end if
+			end if
+		end if
+
+	case(6) ! Model 1 from arxiv:1810.08586, a hyperbolic cosine well V(phi) = V_0 * cosh(beta * (phi/Mpl)**u)
+		V_0 = this%potentialparams(1)
+		beta = this%potentialparams(2)
+		u = this%potentialparams(3)
+		if (deriv==0) then
+			Vofphi = units * V_0 * cosh(beta*phi**u)
+		else if (deriv ==1) then
+			Vofphi = units * V_0 * sinh(beta * phi**u) * beta * u * phi**(u-1)
+		else if (deriv ==2) then
+			Vofphi = units * V_0 * beta * u * (cosh(beta * phi**u) * beta * u * phi**(2*(u-1)) + sinh(beta * phi**u) * (u-1) * phi**(u-2))
+		end if
+
+    case(7) !generalized exponential
+        V_0 = this%potentialparams(1)
+        alpha = this%potentialparams(2)
+        n = this%potentialparams(3)
+        if (deriv == 0) then
+            Vofphi = units * V_0 * EXP(alpha * phi**n) 
+        else if (deriv == 1) then
+            Vofphi = units * V_0 * n * EXP(alpha * phi**n)*alpha*phi**(n-1)
+        else if (deriv ==2) then
+            Vofphi = units * V_0 * n**2 * EXP(alpha * phi**n)*alpha**2*phi**(2*n-2) + units * V_0 * n * (n-1) * EXP(alpha * phi**n)*alpha*phi**(n-2)
+        end if
+
+    case(8) !generalized exponential
+        V_0 = this%potentialparams(1)
+        alpha = this%potentialparams(2)
+        n = this%potentialparams(3)
+        V_1 = this%potentialparams(4)
+        beta = this%potentialparams(5)
+        if (deriv == 0) then
+            Vofphi = units * V_0 * EXP(alpha * phi**n) + V_1 *EXP(beta * phi )
+        else if (deriv == 1) then
+            Vofphi = units * V_0 * n * EXP(alpha * phi**n)*alpha*phi**(n-1) + V_1 * beta * EXP(beta * phi) 
+        else if (deriv ==2) then
+            Vofphi = units * V_0 * n**2 * EXP(alpha * phi**n)*alpha**2*phi**(2*n-2) + units * V_0 * n * (n-1) * EXP(alpha * phi**n)*alpha*phi**(n-2) + V_1 * beta**2 * EXP(beta * phi)
+        end if
+
+!YX finish adding
+	end select
 
     end function TEarlyQuintessence_VofPhi
 
@@ -367,19 +490,6 @@
 
     call this%TQuintessence%Init(State)
 
-    ! Always ensure search_for_initialphi is disabled to prevent premature stopping
-    this%search_for_initialphi = .false.
-    
-    ! Simply print out the input parameters
-    write(*,*) '====== Quintessence Parameter Values ======'
-    write(*,*) 'V0 (param1) =', this%potentialparams(1)
-    write(*,*) 'alpha (param2) =', this%potentialparams(2)
-    write(*,*) 'n (param3) =', this%potentialparams(3)
-    write(*,*) 'V1 (param4) =', this%potentialparams(4)
-    write(*,*) 'beta (param5) =', this%potentialparams(5)
-    write(*,*) 'Omega_de target =', this%state%Omega_de
-    write(*,*) '=========================================='
-    
     this%dloga = (-this%log_astart)/(this%npoints-1)
 
     !use log spacing in a up to max_a_log, then linear. Switch where step matches
@@ -423,17 +533,12 @@
     ! Set initial conditions to give correct Omega_de now
     !   - The initial window is important because it needs to encompass the correct value (assuming there is only one, but it may not be true)
     initial_phi  = 0.01_dl  !   - Remember that this is in Mpl
-    initial_phi2 = 10._dl  ! Upper bound should be large enough but we don't need 1000
+    initial_phi2 = 100._dl
     
     initial_phidot =  astart*this%phidot_start(initial_phi)
     om1= this%GetOmegaFromInitial(astart,initial_phi,initial_phidot, atol)
 
-    initial_phidot = astart*this%phidot_start(initial_phi2)
-    om2= this%GetOmegaFromInitial(astart,initial_phi2,initial_phidot, atol)
-
-    print*, 'Target omega_de: ', this%state%Omega_de
-    print*, 'First trial (phi=', initial_phi, '): Omega_de =', om1 
-    print*, 'Second trial (phi=', initial_phi2, '): Omega_de =', om2
+    print*, 'Target omega_de: ', this%state%Omega_de, 'First trial:', om1, 'Second trial:', om2
     if (abs(om1 - this%state%Omega_de) > this%omega_tol) then 
         ! If our initial guess is not good, enter the algorithm
         OK=.false.
@@ -461,12 +566,9 @@
 			om_large = om1
 		end if
 
-        do iter=1,300
-            deltaphi = phi_large - phi_small
-            phi = phi_small + deltaphi/2
-            if (this%DebugLevel > 0) then
-                print*, 'Iteration:', iter, 'Trying phi =', phi
-            end if
+        do iter=1,100 !  Dividing the window in half 100 times. The code should leave the loop way before the last iteration
+            deltaphi = phi_large - phi_small ! Window size
+            phi = phi_small + deltaphi/2 ! Middle value
             initial_phidot =  astart*this%phidot_start(phi)
             om = this%GetOmegaFromInitial(astart,phi,initial_phidot,atol)
             if (om < this%state%Omega_de) then
@@ -614,28 +716,26 @@
     check_error= .true.
     end function check_error
 
-subroutine TEarlyQuintessence_ReadParams(this, Ini) ! Gets the potential parameters from the .ini file
+subroutine TEarlyQuintessence_ReadParams(this, Ini) ! Gets the potential form and parameters from the .ini file
     use IniObjects
     class(TEarlyQuintessence) :: this
     class(TIniFile), intent(in) :: Ini
 
-    ! Always use double exponential potential
-    !this%potential_type = 8
+    this%potential_type = Ini%Read_Int('field_potential_type', 5)
 
-    ! Read the double exponential potential parameters
-    this%potentialparams(1) = Ini%Read_Double('potentialparam1', 0.d0)  ! V0
-    this%potentialparams(2) = Ini%Read_Double('potentialparam2', 0.d0)  ! alpha
-    this%potentialparams(3) = Ini%Read_Double('potentialparam3', 0.d0)  ! n
-    this%potentialparams(4) = Ini%Read_Double('potentialparam4', 0.d0)  ! V1
-    this%potentialparams(5) = Ini%Read_Double('potentialparam5', 0.d0)  ! beta
+    this%potentialparams(1) = Ini%Read_Double('potentialparam1', 0.d0)
+    this%potentialparams(2) = Ini%Read_Double('potentialparam2', 0.d0)
+    this%potentialparams(3) = Ini%Read_Double('potentialparam3', 0.d0)
+    this%potentialparams(4) = Ini%Read_Double('potentialparam4', 0.d0)
+    this%potentialparams(5) = Ini%Read_Double('potentialparam5', 0.d0)
 	
-	! Print parameters to confirm
-	print *, "Double Exponential Potential Parameters:"
-	print *, "V0:", this%potentialparams(1)
-    print *, "alpha:", this%potentialparams(2)
-    print *, "n:", this%potentialparams(3)
-    print *, "V1:", this%potentialparams(4)
-    print *, "beta:", this%potentialparams(5)
+	! Print here to test if works
+	print *, "Potential type:", this%potential_type
+	print *, "Parameter 1:", this%potentialparams(1)
+    print *, "Parameter 2:", this%potentialparams(2)
+    print *, "Parameter 3:", this%potentialparams(3)
+    print *, "Parameter 4:", this%potentialparams(4)
+    print *, "Parameter 5:", this%potentialparams(5)
 
 	this%output_background_phi = Ini%Read_Logical('output_scalarfield')
 	this%output_background_phi_filename = Ini%Read_String('output_scalarfield_filename')
@@ -662,10 +762,10 @@ end subroutine TEarlyQuintessence_ReadParams
     end subroutine TEarlyQuintessence_SelfPointer
 
     ! This can also be very useful!
-    real(dl) function GetOmegaFromInitial(this, astart, phi, phidot, atol)
+    real(dl) function GetOmegaFromInitial(this, astart,phi,phidot,atol)
     !Get Omega_de today given particular conditions phi and phidot at a=astart
     class(TQuintessence) :: this
-    real(dl), intent(IN) :: astart, phi, phidot, atol
+    real(dl), intent(IN) :: astart, phi,phidot, atol
     integer, parameter ::  NumEqs=2
     real(dl) c(24),w(NumEqs,9), y(NumEqs), ast
     integer ind, i

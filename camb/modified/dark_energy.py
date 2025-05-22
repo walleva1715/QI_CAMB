@@ -158,7 +158,6 @@ class Quintessence(DarkEnergyModel):
         ("__max_a_log", c_double),
         ("__ddphi_a", AllocatableArrayDouble),
         ("__ddphidot_a", AllocatableArrayDouble),
-        ("omega_tol", c_double),
         ("__state", f_pointer)
     ]
     _fortran_class_module_ = 'Quintessence'
@@ -167,93 +166,76 @@ class Quintessence(DarkEnergyModel):
 @fortran_class
 class EarlyQuintessence(Quintessence):
     r"""
-    Double exponential quintessence model with potential
+    Example early quintessence (axion-like, as arXiv:1908.06995) with potential
 
-     V(\phi) = V_0 \exp(\alpha \phi^n) + V_1 \exp(\beta \phi)
+     V(\phi) = m^2f^2 (1 - cos(\phi/f))^2 + \Lambda_{cosmological constant}
 
-    This model can accommodate both early dark energy and late-time acceleration.
     """
-    _fortran_class_module_ = 'Quintessence'
-    _fortran_class_name_ = 'TEarlyQuintessence'
-    
+
     _fields_ = [
         ("n", c_double, "power index for potential"),
-        ("f", c_double, r"f/Mpl (sqrt(8\piG)f); legacy parameter"),
-        ("m", c_double, "mass parameter; legacy parameter"),
-        ("theta_i", c_double, "phi/f initial field value; legacy parameter"),
-        ("frac_lambda0", c_double, "fraction of dark energy in cosmological constant today"),
-        ("use_zc", c_bool, "legacy parameter"),
-        ("zc", c_double, "legacy parameter"),
-        ("fde_zc", c_double, "legacy parameter"),
+        ("f", c_double, r"f/Mpl (sqrt(8\piG)f); only used for initial search value if use_zc is True"),
+        ("m", c_double, "mass parameter in reduced Planck mass units; "
+                        "only used for initial search value of use_zc is True"),
+        ("theta_i", c_double, "phi/f initial field value"),
+        ("frac_lambda0", c_double, "fraction of dark energy in cosmologicla constant today (approximated as 1)"),
+        ("use_zc", c_bool, "solve for f, m to get specific critical reshidt zc and fde_zc"),
+        ("zc", c_double, "reshift of peak fractional early dark energy density"),
+        ("fde_zc", c_double, "fraction of early dark energy density to total at peak"),
         ("npoints", c_int, "number of points for background integration spacing"),
         ("min_steps_per_osc", c_int, "minimumum number of steps per background oscillation scale"),
-        ("fde", AllocatableArrayDouble, "after initialized, the calculated background dark energy "
+        ("fde", AllocatableArrayDouble, "after initialized, the calculated backgroundearly dark energy "
                                         "fractions at sampled_a"),
         ("__ddfde", AllocatableArrayDouble),
         ("output_background_phi", c_bool, "flag to output background phi evolution"),
         ("output_background_phi_filename", c_char*50, "filename for background phi output"),
         ("search_for_initialphi", c_bool, "flag to search for initial phi"),
-        ("potentialparams", c_double * 5, "parameters of the double exponential potential: "
-                                           "[V_0, alpha, n, V_1, beta]")
+        ("potential_type", c_int, "potential type for quintessence"),
+        ("potentialparams", numpy_1d, "array of potential parameters")
     ]
+    _fortran_class_name_ = 'TEarlyQuintessence'
 
-    def __init__(self, **kwargs):
-        # Initialize with default values
-        self.search_for_initialphi = False
-        
-        # Initialize potentialparams to zeros
-        for i in range(5):
-            self.potentialparams[i] = 0.0
-        
-        kwargs_copy = kwargs.copy()
-        kwargs_copy['search_for_initialphi'] = False
-        super().__init__(**kwargs_copy)
-        
-        self.search_for_initialphi = False
-
-    def set_params(self, V0=1e-120, alpha=0.1, n=1.0, V1=5e-121, beta=0.05,
-                 output_background_phi=False, output_background_phi_filename=None):
+    def set_params(self, n, f=0.05, m=5e-54, theta_i=0.0, use_zc=True, zc=None, fde_zc=None,
+                   potential_type=7, potentialparams=None,
+                   output_background_phi=False, output_background_phi_filename=None,
+                   search_for_initialphi=False):
         """
-        Configure double exponential quintessence parameters.
-        
-        Python keyword arguments map to Fortran potential parameters (P) as follows,
-        using a dummy self.potentialparams[0] in Python:
-          - Python 'V0' kwarg    -> Fortran P(1) (V0_F)    -> self.potentialparams[0]
-          - Python 'alpha' kwarg -> Fortran P(2) (alpha_F) -> self.potentialparams[1]
-          - Python 'n' kwarg     -> Fortran P(3) (n_F)     -> self.potentialparams[2]
-          - Python 'V1' kwarg    -> Fortran P(4) (V1_F)    -> self.potentialparams[3]
-          - Python 'beta' kwarg  -> Fortran P(5) (beta_F)  -> self.potentialparams[4]
-        Note: The user's previous setup effectively used self.potentialparams[0] as unused,
-        and started mapping from self.potentialparams[1]. This is maintained IF the parameter
-        passing in test_parameter_fix.py reflects that desired mapping.
-        Given the Fortran output, the mapping seems to be direct from python kwarg name to Fortran param name.
-        E.g. Python V0 kwarg sets Fortran V0 (param1).
-        This requires Python self.potentialparams[0] = V0_kwarg, etc.
+        Configure early quintessence model parameters.
+        :param n: exponent for potential
+        :param f: scale factor
+        :param m: mass parameter
+        :param theta_i: initial field angle
+        :param use_zc: whether to use zc and fde_zc
+        :param zc: redshift of peak dark energy fraction
+        :param fde_zc: fraction of dark energy at peak
+        :param potential_type: integer selecting potential form (default=7 general exponential, use 8 for double exponential)
+        :param potentialparams: list or array of parameters for chosen potential
+        :param output_background_phi: enable writing phi(a) evolution to file
+        :param output_background_phi_filename: output filename for phi(a)
+        :param search_for_initialphi: enable diagnostic search for initial phi
         """
-        self.search_for_initialphi = False
-        
-        for i in range(5):
-            self.potentialparams[i] = 0.0
-            
-        # Direct mapping: Python kwarg name corresponds to Fortran parameter name.
-        # Python self.potentialparams is 0-indexed, Fortran potentialparams is 1-indexed.
-        # So, self.potentialparams[0] maps to Fortran potentialparams(1) (V0_F)
-        # self.potentialparams[1] maps to Fortran potentialparams(2) (alpha_F)
-        # ...and so on.
-        self.potentialparams[0] = V0     # Python V0 kwarg -> Fortran P(1) (V0 in formula)
-        self.potentialparams[1] = alpha  # Python alpha kwarg -> Fortran P(2) (alpha in formula)
-        self.potentialparams[2] = n      # Python n kwarg -> Fortran P(3) (n in formula)
-        self.potentialparams[3] = V1     # Python V1 kwarg -> Fortran P(4) (V1 in formula)
-        self.potentialparams[4] = beta   # Python beta kwarg -> Fortran P(5) (beta in formula)
-        
+        self.n = n
+        self.f = f
+        self.m = m
+        self.theta_i = theta_i
+        self.use_zc = use_zc
+        if use_zc:
+            if zc is None or fde_zc is None:
+                raise ValueError("must set zc and fde_zc if using use_zc")
+            self.zc = zc
+            self.fde_zc = fde_zc
+        # set potential selection
+        self.potential_type = potential_type
+        if potentialparams is not None:
+            arr = np.ascontiguousarray(potentialparams, dtype=np.float64)
+            self.potentialparams = arr
+        # set output controls
         self.output_background_phi = output_background_phi
         if output_background_phi_filename is not None:
-            # Ensure string fits in the 50-char buffer and convert to bytes
+            # ensure string fits 50 chars
             fname = str(output_background_phi_filename)[:50]
-            self.output_background_phi_filename = fname.encode('utf-8')
-        
-        self.search_for_initialphi = False
-        
+            self.output_background_phi_filename = fname
+        self.search_for_initialphi = search_for_initialphi
         return self
 
 

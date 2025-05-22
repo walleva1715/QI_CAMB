@@ -3,7 +3,7 @@ import os.path as osp
 import sys
 import platform
 import ctypes
-from ctypes import Structure, POINTER, byref, c_int, c_double, c_bool, c_float
+from ctypes import Structure, POINTER, byref, c_int, c_double, c_bool, c_float, c_char
 from numpy.ctypeslib import ndpointer
 import numpy as np
 
@@ -477,7 +477,7 @@ class CAMBStructureMeta(type(Structure)):
                 pass
 
         tps = {c_bool: "boolean", c_double: "float64", c_int: "integer",
-               c_float: "float32",
+               c_float: "float32", c_char: "char",
                AllocatableArrayDouble: "float64 array",
                AllocatableArrayInt: "integer array",
                ctypes.c_void_p: "pointer"}

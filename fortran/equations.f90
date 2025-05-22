@@ -3142,7 +3142,7 @@
     !  Get the propagation equation for the shear
 
     if (State%flat) then
-        aytprime(ixt_shear)=(-2 + 3*CP%nu_0)*adotoa*shear+k*Hchi-rhopi/k !This is where the modification of friction
+        aytprime(ixt_shear)= -2 *adotoa*shear+k*Hchi-rhopi/k !This is where the modification of friction
     else
         aytprime(ixt_shear)=-2*adotoa*shear+k*Hchi*(1+2*State%curv/k2)-rhopi/k
     endif
