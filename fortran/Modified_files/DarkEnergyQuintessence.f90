@@ -1,4 +1,4 @@
-    ! Equations module allowing for fairly general quintessence models
+! Equations module allowing for fairly general quintessence models
     !
     ! by Antony Lewis (http://cosmologist.info/)
 
@@ -88,6 +88,7 @@
     procedure, private :: check_error ! Could use
 
     end type TEarlyQuintessence
+
 
     procedure(TClassDverk) :: dverk
 
@@ -210,7 +211,8 @@
 
     adot=sqrt(tot/3.0d0)
     yprime(1)=phidot/adot ! d phi /d a
-    yprime(2)= -a2**2*this%Vofphi(phi,1)/adot		!YX - Is this right?
+    ! include Hubble damping term from Klein-Gordon: d(a^2 phi')/da = -a*phi_dot - a^4 V'(phi)/a_dot
+    yprime(2)= -a*phidot - a2**2*this%Vofphi(phi,1)/adot
 
     end subroutine EvolveBackground
 
@@ -443,32 +445,17 @@
     real(dl) c(24),w(NumEqs,9), y(NumEqs)
     integer ind, i, ix
     real(dl), parameter :: splZero = 0._dl
-    real(dl) lastsign, da_osc, last_a, a_c ! Won't use
-    real(dl) initial_phi, initial_phidot, a2
+    real(dl) initial_phi, initial_phi2, deltaphi, phi, initial_phidot, a2
     real(dl), dimension(:), allocatable :: sampled_a, phi_a, phidot_a, fde
-    integer npoints, tot_points, max_ix
-    logical has_peak ! Won't use
-    real(dl) fzero, xzero ! I think I won't use
-    integer iflag, iter
-    Type(TTimer) :: Timer
-    Type(TNEWUOA) :: Minimize
-    real(dl) log_params(2), param_min(2), param_max(2)
-
-	real(dl) :: astart, atol, deltaphi, initial_phi2, om, om1, om2, phi_small, phi_large, phi, phistep, initialexp ! variables to find good initial conditions
-	real(dl) :: om_small, om_large
-	logical :: OK
-	real(dl) :: w_phi !YX - equation of state
-	real(dl) :: fmatter, frad !YX - matter and radiation fractions. Since the background is evolved here I can output the energy fractions
-
-    !Make interpolation table, etc,
-    !At this point massive neutrinos have been initialized
-    !so grho_no_de can be used to get density and pressure of other components at scale factor a
+    integer npoints, tot_points
+    logical :: OK
+    real(dl) om1, om2, om, phi_small, phi_large, om_small, om_large
+    real(dl) :: astart, atol
+    real(dl) :: w_phi, fmatter, frad
 
     call this%TQuintessence%Init(State)
 
     this%dloga = (-this%log_astart)/(this%npoints-1)
-
-    !use log spacing in a up to max_a_log, then linear. Switch where step matches
     this%max_a_log = 1.d0/this%npoints/(exp(this%dloga)-1)
     npoints = (log(this%max_a_log)-this%log_astart)/this%dloga + 1
 
@@ -480,156 +467,95 @@
 
     astart=1d-9
     atol=1d-8
-	if (this%search_for_initialphi .eqv. .true.) then
-        !YX - This code bit outputs omega_phi in terms of initial_phi and stops the code. This is done in order to calibrate the binary search initial window and to
-        ! check if there are ambiguities in the initial conditions
-        open(unit=13, file='initialphisearch2.txt', form='formatted',status='replace')
-        
-        write(13, *) "initial_phi	Omega_de"
-        write(13, '(2e15.6)') initial_phi, this%GetOmegaFromInitial(astart, initial_phi, 0._dl, atol)
-        phistep = 1.d-6
-        initialexp = -100._dl
-        ! print *, MPC_in_sec**2 /Tpl**2
-        do i= 1,1000
-            initial_phi = 1.d-20 + i*1.d-21
-            write(13, '(2e15.6)') initial_phi, this%GetOmegaFromInitial(astart, initial_phi, 0._dl, atol)
-        end do
-        close(13)
-        stop "Forced stop - outputted omega_de x initial_phi. To undo this, set search_for_initialphi to .false."
+
+    ! Binary search for initial_phi to match Omega_de today
+    initial_phi  = 0.01_dl
+    initial_phi2 = 100._dl
+    initial_phidot =  astart*this%phidot_start(initial_phi)
+    om1= GetOmegaFromInitial(this, astart, initial_phi, initial_phidot, atol)
+    initial_phidot =  astart*this%phidot_start(initial_phi2)
+    om2= GetOmegaFromInitial(this, astart, initial_phi2, initial_phidot, atol)
+
+    if ((om1 < this%state%Omega_de .and. om2 < this%state%Omega_de) .or. &
+        (om1 > this%state%Omega_de .and. om2 > this%state%Omega_de)) then
+        write (*,*) 'The initial phi window must bracket required value: ', this%state%Omega_de
+        write (*,*) 'om1, om2 = ', real(om1), real(om2)
+        stop
     end if
 
+    if (om1 < this%state%Omega_de) then
+        phi_small = initial_phi
+        om_small = om1
+        phi_large = initial_phi2
+        om_large = om2
+    else
+        phi_small = initial_phi2
+        om_small = om2
+        phi_large = initial_phi
+        om_large = om1
+    end if
 
-    !YX - Binary search algorithm. This is an important step of the code. The current energy density of the field (and therefore Omega_de)
-    ! are determined by the initial conditions phi(astart), phidot(astart). Since the Hubble friction 3Hphidot can be arbitrarily large, any initial
-    ! field velocity is dissipated and the initial kinetic energy is negligible (check my notes on initial conditions). Thus, the current quintessence
-    ! energy density is determined by phi(astart). The dark energy density parameter is set by the condition Omega_de = 1 - Omega_k - Omega_matter - Omega_radiation - ...
-    ! so in this scheme the initial condition for the background field is set by the cosmological parameter closure relation. To find the correct value for initial_phi,
-    ! we do a binary search (also known as the bissection method for finding roots of equations).
-
-    ! Set initial conditions to give correct Omega_de now
-    !YX - The initial window is important because it needs to encompass the correct value (assuming there is only one, but it may not be true)
-    initial_phi  = 0.01_dl  !YX - Remember that this is in Mpl
-    initial_phi2 = 100._dl
-    
-    initial_phidot =  astart*this%phidot_start(initial_phi)
-    om1= this%GetOmegaFromInitial(astart,initial_phi,initial_phidot, atol)
-
-    print*, 'Target omega_de: ', this%state%Omega_de, 'First trial:', om1, 'Second trial:', om2
-    if (abs(om1 - this%state%Omega_de) > this%omega_tol) then 
-        !YX - If our initial guess is not good, enter the algorithm
-        OK=.false.
-        initial_phidot = astart*this%phidot_start(initial_phi2)
-        om2= this%GetOmegaFromInitial(astart,initial_phi2,initial_phidot, atol)
-
-        if ((om1 < this%state%Omega_de .and. om2 < this%state%Omega_de) .or. &
-		 (om1 > this%state%Omega_de .and. om2 > this%state%Omega_de)) then
-			!YX - The bissection algorithm only works if one of the window boundaries is below the required value and
-			! the other is above the required value. If this is not the case, adjust the window.
-            write (*,*) 'The initial phi window must bracket required value: ', this%state%Omega_de
-            write (*,*) 'om1, om2 = ', real(om1), real(om2)
-            stop
+    OK = .false.
+    do i=1,100
+        deltaphi = phi_large - phi_small
+        phi = phi_small + deltaphi/2
+        initial_phidot =  astart*this%phidot_start(phi)
+        om = GetOmegaFromInitial(this, astart, phi, initial_phidot, atol)
+        if (om < this%state%Omega_de) then
+            om_small=om
+            phi_small=phi
+        else
+            om_large=om
+            phi_large=phi
         end if
-		
-		if (om1 < this%state%Omega_de) then
-			phi_small = initial_phi
-			om_small = om1
-			phi_large = initial_phi2
-			om_large = om2
-		else
-			phi_small = initial_phi2
-			om_small = om2
-			phi_large = initial_phi
-			om_large = om1
-		end if
-
-        do iter=1,100 !YX - Dividing the window in half 100 times. The code should leave the loop way before the last iteration
-            deltaphi = phi_large - phi_small ! Window size
-            phi = phi_small + deltaphi/2 ! Middle value
-            initial_phidot =  astart*this%phidot_start(phi)
-            om = this%GetOmegaFromInitial(astart,phi,initial_phidot,atol)
-            if (om < this%state%Omega_de) then
-                om_small=om
-                phi_small=phi
-            else
-                om_large=om
-                phi_large=phi
-            end if
-            if (abs(om_large-om_small) < 1d-3) then !YX - The omega tolerance is 10^(-3)
-                OK=.true.
-                initial_phi = (phi_small + phi_large)/2
-                if (FeedbackLevel > 0) write(*,*) 'phi_initial = ',initial_phi, 'omega = ', this%GetOmegaFromInitial(astart, initial_phi, 0._dl, atol)
-				!stop
-                exit
-            end if
-    
-        end do
-        if (.not. OK) stop 'Search for good intial conditions did not converge' ! This should not happen
-    
-    end if ! Leaving binary search algorithm
-	!initial_phi = 1.d-3
-    !initial_phi = 1d-5 ! The code came with an initial value of 0.15Mpl
+        if (abs(om_large-om_small) < 1d-3) then
+            OK=.true.
+            initial_phi = (phi_small + phi_large)/2
+            exit
+        end if
+    end do
+    if (.not. OK) stop 'Search for good intial conditions did not converge'
 
     y(1)=initial_phi
-    initial_phidot =  this%astart*this%phidot_start(initial_phi)
+    initial_phidot =  astart*this%phidot_start(initial_phi)
     y(2)= initial_phidot*this%astart**2
 
     phi_a(1)=y(1)
     phidot_a(1)=y(2)/this%astart**2
     sampled_a(1)=this%astart
-    da_osc = 1 ! Won't use
-    last_a = this%astart
-    max_ix =0
-
-    ind=1
+    ix = 1
     afrom=this%log_astart
 
-	! Modifying to output background phi(a)
-	if (this%output_background_phi .eqv. .true.) then
-		open(unit=50, file=this%output_background_phi_filename, form='formatted', status='replace')
-		write(50, *) "a		phi		phidot		fde		w	1+z	fmatter	frad"
-	end if
+    if (this%output_background_phi .eqv. .true.) then
+        open(unit=50, file=this%output_background_phi_filename, form='formatted', status='replace')
+        write(50, *) "a\tphi\tphidot\tfde\tw\t1+z\tfmatter\tfrad"
+    end if
     do i=1, npoints-1
         aend = this%log_astart + this%dloga*i
         ix = i+1
         sampled_a(ix)=exp(aend)
         a2 = sampled_a(ix)**2
         call dverk(this,NumEqs,EvolveBackgroundLog,afrom,y,aend,this%integrate_tol,ind,c,NumEqs,w)
-        if (.not. this%check_error(exp(afrom), exp(aend))) return
         call EvolveBackgroundLog(this,NumEqs,aend,y,w(:,1))
         phi_a(ix)=y(1)
         phidot_a(ix)=y(2)/a2
-
-        !YX - fde is the dark energy fraction
         fde(ix) = 1/((this%state%grho_no_de(sampled_a(ix)) +  this%frac_lambda0*this%State%grhov*a2**2) &
             /(a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))) + 1)
-
-		fmatter = this%state%grho_matter(sampled_a(ix)) / (this%state%grho_no_de(sampled_a(ix)) + (a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))))
-
-		frad = this%state%grho_radiation(sampled_a(ix))/(this%state%grho_no_de(sampled_a(ix)) + (a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))))
-
-		! w_phi is the quintessence Eos parameter
-		w_phi = (phidot_a(ix)**2/2 - a2*this%Vofphi(phi_a(ix),0))/(phidot_a(ix)**2/2 + a2*this%Vofphi(phi_a(ix),0))
-
-		if (this%output_background_phi .eqv. .true.) then ! Output background evolution
-			write(50, '(8e16.6)') sampled_a(ix), phi_a(ix), phidot_a(ix), fde(ix), w_phi, 1._dl/sampled_a(ix), fmatter, frad
-		end if
-		
-		! Also won't need this if
-        if (sampled_a(ix)*(exp(this%dloga)-1)*this%min_steps_per_osc > da_osc) then
-            !Step size getting too big to sample oscillations well
-            exit
+        fmatter = this%state%grho_matter(sampled_a(ix)) / (this%state%grho_no_de(sampled_a(ix)) + (a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))))
+        frad = this%state%grho_radiation(sampled_a(ix))/(this%state%grho_no_de(sampled_a(ix)) + (a2*(0.5d0* phidot_a(ix)**2 + a2*this%Vofphi(phi_a(ix),0))))
+        w_phi = (phidot_a(ix)**2/2 - a2*this%Vofphi(phi_a(ix),0))/(phidot_a(ix)**2/2 + a2*this%Vofphi(phi_a(ix),0))
+        if (this%output_background_phi .eqv. .true.) then
+            write(50, '(8e16.6)') sampled_a(ix), phi_a(ix), phidot_a(ix), fde(ix), w_phi, 1._dl/sampled_a(ix), fmatter, frad
         end if
-
     end do
-
-    ! Do remaining steps with linear spacing in a, trying to be small enough
+    if (this%output_background_phi .eqv. .true.) then
+        close(50)
+    end if
     this%npoints_log = ix
     this%max_a_log = sampled_a(ix)
-    this%da = min(this%max_a_log *(exp(this%dloga)-1), &
-        da_osc/this%min_steps_per_osc, (1- this%max_a_log)/(this%npoints-this%npoints_log))
+    this%da = min(this%max_a_log *(exp(this%dloga)-1), (1- this%max_a_log)/(this%npoints-this%npoints_log))
     this%npoints_linear = int((1- this%max_a_log)/ this%da)+1
     this%da = (1- this%max_a_log)/this%npoints_linear
-
     tot_points = this%npoints_log+this%npoints_linear
     allocate(this%phi_a(tot_points),this%phidot_a(tot_points))
     allocate(this%ddphi_a(tot_points),this%ddphidot_a(tot_points))
@@ -639,8 +565,6 @@
     this%phidot_a(1:ix) = phidot_a(1:ix)
     this%sampled_a(1:ix) = sampled_a(1:ix)
     this%fde(1:ix) = fde(1:ix)
-
-    ind=1
     afrom = this%max_a_log
     do i=1, this%npoints_linear
         ix = this%npoints_log + i
@@ -648,33 +572,24 @@
         a2 =aend**2
         this%sampled_a(ix)=aend
         call dverk(this,NumEqs,EvolveBackground,afrom,y,aend,this%integrate_tol,ind,c,NumEqs,w)
-        if (.not. this%check_error(afrom, aend)) return
         call EvolveBackground(this,NumEqs,aend,y,w(:,1))
         this%phi_a(ix)=y(1)
         this%phidot_a(ix)=y(2)/a2
-
         this%fde(ix) = 1/((this%state%grho_no_de(aend) +  this%frac_lambda0*this%State%grhov*a2**2) &
             /(a2*(0.5d0* this%phidot_a(ix)**2 + a2*this%Vofphi(y(1),0))) + 1)
-
-		w_phi = (0.5d0 * this%phidot_a(ix)**2 - a2*this%Vofphi(this%phi_a(ix),0))/(0.5d0 * this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))
-
-		fmatter = this%state%grho_matter(this%sampled_a(ix)) / (this%state%grho_no_de(this%sampled_a(ix)) + (a2*(0.5d0* this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))))
-
-		frad = this%state%grho_radiation(this%sampled_a(ix))/(this%state%grho_no_de(this%sampled_a(ix)) + (a2*(0.5d0* this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))))
-
-		if (this%output_background_phi .eqv. .true.) then ! Output background evolution
-			write(50, '(8e16.6)') this%sampled_a(ix), this%phi_a(ix), this%phidot_a(ix), this%fde(ix), w_phi, 1._dl/this%sampled_a(ix), fmatter, frad
-		end if
-
+        w_phi = (0.5d0 * this%phidot_a(ix)**2 - a2*this%Vofphi(this%phi_a(ix),0))/(0.5d0 * this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))
+        fmatter = this%state%grho_matter(this%sampled_a(ix)) / (this%state%grho_no_de(this%sampled_a(ix)) + (a2*(0.5d0* this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))))
+        frad = this%state%grho_radiation(this%sampled_a(ix))/(this%state%grho_no_de(this%sampled_a(ix)) + (a2*(0.5d0* this%phidot_a(ix)**2 + a2*this%Vofphi(this%phi_a(ix),0))))
+        if (this%output_background_phi .eqv. .true.) then
+            write(50, '(8e16.6)') this%sampled_a(ix), this%phi_a(ix), this%phidot_a(ix), this%fde(ix), w_phi, 1._dl/this%sampled_a(ix), fmatter, frad
+        end if
     end do
     if (this%output_background_phi .eqv. .true.) then
-		close(50)
-	end if
-	
+        close(50)
+    end if
     call spline(this%sampled_a,this%phi_a,tot_points,splZero,splZero,this%ddphi_a)
     call spline(this%sampled_a,this%phidot_a,tot_points,splZero,splZero,this%ddphidot_a)
     call spline(this%sampled_a,this%fde,tot_points,splZero,splZero,this%ddfde)
-
     end subroutine TEarlyQuintessence_Init
 
     logical function check_error(this, afrom, aend)

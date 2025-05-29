@@ -321,15 +321,15 @@
     
     if (deriv == 0) then
         ! Potential: V(phi)
-        Vofphi = units * V_0 * EXP(alpha * phi**n) + units * V_1 * EXP(beta * phi)
+        Vofphi = units * V_0 * EXP(-alpha * phi**n) + units * V_1 * EXP(-beta * phi)
     else if (deriv == 1) then
         ! First derivative: dV/dphi
-        Vofphi = units * V_0 * n * EXP(alpha * phi**n) * alpha * phi**(n-1) + units * V_1 * beta * EXP(beta * phi) 
+        Vofphi = units * V_0 * n * EXP(-alpha * phi**n) * (-alpha) * phi**(n-1) + units * V_1 * (-beta) * EXP(-beta * phi) 
     else if (deriv == 2) then
         ! Second derivative: d²V/dphi²
-        Vofphi = units * V_0 * n**2 * EXP(alpha * phi**n) * alpha**2 * phi**(2*n-2) + &
-                 units * V_0 * n * (n-1) * EXP(alpha * phi**n) * alpha * phi**(n-2) + &
-                 units * V_1 * beta**2 * EXP(beta * phi)
+        Vofphi = units * V_0 * n**2 * EXP(-alpha * phi**n) * alpha**2 * phi**(2*n-2) + &
+                 units * V_0 * n * (n-1) * EXP(-alpha * phi**n) * (-alpha) * phi**(n-2) + &
+                 units * V_1 * beta**2 * EXP(-beta * phi)
     end if
 
     end function TEarlyQuintessence_VofPhi

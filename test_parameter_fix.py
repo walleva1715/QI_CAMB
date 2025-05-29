@@ -26,7 +26,7 @@ params.set_matter_power(redshifts=[0.0], kmax=2.0)
 
 # Define the parameter values to be used
 py_V0 = 9e-121
-py_alpha = -10.0
+py_alpha = 2.0
 py_n = 3.0
 py_V1 = 0#8e-123
 py_beta = 0# -2.0
