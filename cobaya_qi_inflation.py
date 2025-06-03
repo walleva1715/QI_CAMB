@@ -122,7 +122,7 @@ class QuintessenceInflationTheory(Theory):
         
         # 5. Configure the quintessence potential
         # For the exponential potential V(φ) = V0·exp[-γ φ^n_exp], use potential_type 7
-        V0 = 9e-121  # Placeholder V0 value - ensures quintessence energy density is low during inflation
+        V0 = 3.e-120  # Placeholder V0 value - ensures quintessence energy density is low during inflation
         potentialparams = [V0, gamma, n_exp, 0.0, 0.0]
         
         # Set dark energy model

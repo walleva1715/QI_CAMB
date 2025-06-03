@@ -357,20 +357,11 @@
     real(dl) log_params(2), param_min(2), param_max(2)
     real(dl), parameter :: units = MPC_in_sec**2 /Tpl**2 
 
-	real(dl) :: astart, atol, deltaphi, initial_phi2, intial_phi3, om, om1, om2, om3, phi_small, phi_large, phi, phistep, initialexp ! variables to find good initial conditions
+	real(dl) :: astart, atol, deltaphi, initial_phi2, om, om1, om2, phi_small, phi_large, phi, phistep, initialexp ! variables to find good initial conditions
 	real(dl) :: om_small, om_large
 	logical :: OK
 	real(dl) :: w_phi !   - equation of state
 	real(dl) :: fmatter, frad !   - matter and radiation fractions. Since the background is evolved here I can output the energy fractions
-    real(dl) :: local_phi0_amp
-    real(dl) :: omega_minus_test, omega_zero_test, omega_plus_test
-    real(dl) :: phi_try_expand, omega_try_expand
-    integer  :: max_expand_steps, current_expand_step
-    real(dl) :: phi_mid_bisect, om_mid_bisect
-    real(dl) :: current_phi_low, current_phi_high, current_om_low, current_om_high
-    integer  :: max_bisection_iter
-    real(dl) :: bisection_tol_phi, bisection_tol_omega
-! Reuse existing: initial_phi, initial_phidot, astart, atol, om1, om2, phi_small, phi_large, om_small, om_large, OK, iter
 
     !Make interpolation table, etc,
     !At this point massive neutrinos have been initialized
@@ -433,241 +424,102 @@
     ! so in this scheme the initial condition for the background field is set by the cosmological parameter closure relation. To find the correct value for initial_phi,
     ! we do a binary search (also known as the bissection method for finding roots of equations).
 
-    ! --- Start of NEW ADAPTIVE BRACKETING AND BISECTION ---
-    ! Note: Ensure variables like local_phi0_amp, omega_minus_test, etc., 
-    !       current_phi_low, etc., are declared at the top of this subroutine.
-    !       Variables like initial_phi, initial_phidot, astart, atol, om1, om2, 
-    !       phi_small, phi_large, om_small, om_large, OK, iter are assumed to be declared from original code.
-
-    ! 1) Preliminaries for Adaptive Bracketing
-    local_phi0_amp = 10.0_dl     ! Nominal test amplitude (in M_pl units)
-    max_expand_steps = 60        ! Max steps for expansion
-    this%init_failed_flag = .false. ! Reset flag
-
-    if (this%DebugLevel > 0) then
-        write(*,*) 'DEBUG ADAPTIVE: Target Omega_de = ', this%state%Omega_de
-        write(*,*) 'DEBUG ADAPTIVE: Testing with local_phi0_amp = ', local_phi0_amp
-        write(*,*) 'DEBUG ADAPTIVE: astart = ', astart, ', atol = ', atol
-    end if
-
-    ! Evaluate at phi = -local_phi0_amp, 0, +local_phi0_amp
-    initial_phidot = astart * this%phidot_start(-local_phi0_amp)
-    omega_minus_test = this%GetOmegaFromInitial(astart, -local_phi0_amp, initial_phidot, atol)
-
-    initial_phidot = astart * this%phidot_start(0.0_dl)
-    omega_zero_test  = this%GetOmegaFromInitial(astart,  0.0_dl, initial_phidot, atol)
-
-    initial_phidot = astart * this%phidot_start(+local_phi0_amp)
-    omega_plus_test  = this%GetOmegaFromInitial(astart, +local_phi0_amp, initial_phidot, atol)
-
-    if (this%DebugLevel > 0) then
-        write(*,*) 'DEBUG ADAPTIVE: Omega(-', local_phi0_amp,') =', omega_minus_test
-        write(*,*) 'DEBUG ADAPTIVE: Omega(  0   ) =', omega_zero_test
-        write(*,*) 'DEBUG ADAPTIVE: Omega(+', local_phi0_amp,') =', omega_plus_test
-    end if
-
-    ! 2) Attempt to find initial bracket [phi_small, phi_large]
-    OK = .false. ! Flag to indicate if a bracket is found
-
-    ! 2A) PRIORITIZE: Check bracket [0, +local_phi0_amp]
-    if ((omega_zero_test - this%state%Omega_de) * (omega_plus_test - this%state%Omega_de) < 0.0_dl) then
-        phi_small =  0.0_dl
-        om_small  = omega_zero_test
-        phi_large = +local_phi0_amp
-        om_large  = omega_plus_test
-        OK = .true.
-        if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: Bracket found in [0, +local_phi0_amp]"
-    ! 2B) If not, check bracket [-local_phi0_amp, 0]
-    else if ((omega_minus_test - this%state%Omega_de) * (omega_zero_test - this%state%Omega_de) < 0.0_dl) then
-        phi_small = -local_phi0_amp
-        om_small  = omega_minus_test
-        phi_large =  0.0_dl
-        om_large  = omega_zero_test
-        OK = .true.
-        if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: Bracket found in [-local_phi0_amp, 0]"
-    ! 2C) Neither subinterval works -> expand outward
-    else
-        if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: No initial bracket with local_phi0_amp. Expanding search..."
-        if (omega_zero_test < this%state%Omega_de) then
-            phi_small = 0.0_dl
-            om_small = omega_zero_test
-            if (omega_plus_test < this%state%Omega_de .and. omega_plus_test > om_small) then
-                 phi_small = +local_phi0_amp 
-                 om_small = omega_plus_test
-            endif
-            phi_try_expand = local_phi0_amp * 2.0_dl 
-            if (phi_try_expand <= phi_small) phi_try_expand = phi_small + abs(phi_small*0.1_dl) + 1.0e-6_dl
-
-            if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: omega_zero_test < target. Walking POSITIVE phi from try=", phi_try_expand
-            do current_expand_step = 1, max_expand_steps
-                initial_phidot = astart * this%phidot_start(phi_try_expand)
-                omega_try_expand = this%GetOmegaFromInitial(astart, phi_try_expand, initial_phidot, atol)
-                if (this%DebugLevel > 0) write(*,*) 'DEBUG ADAPTIVE (expand +): step=', current_expand_step, ' phi=', phi_try_expand, ' Omega=', omega_try_expand
-                if (omega_try_expand > this%state%Omega_de) then
-                    phi_large = phi_try_expand
-                    om_large  = omega_try_expand
-                    OK = .true.
-                    if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE (expand +): Bracket found [", phi_small, ",", phi_large, "]"
-                    exit 
-                else
-                    if (phi_try_expand > phi_small .and. omega_try_expand > om_small) then 
-                        phi_small = phi_try_expand 
-                        om_small  = omega_try_expand
-                    else if (phi_try_expand > phi_small .and. om_small > this%state%Omega_de) then ! if previous phi_small overshot
-                        phi_small = phi_try_expand
-                        om_small = omega_try_expand
-                    endif
-                    phi_try_expand = phi_try_expand * 2.0_dl
-                    if (phi_try_expand <= phi_small) phi_try_expand = phi_small * 1.5_dl + 1.0e-5_dl 
-                end if
-            end do
-        else ! omega_zero_test > this%state%Omega_de
-            phi_large = 0.0_dl
-            om_large = omega_zero_test
-            if (omega_minus_test > this%state%Omega_de .and. omega_minus_test < om_large) then
-                phi_large = -local_phi0_amp
-                om_large = omega_minus_test
-            endif
-            phi_try_expand = -local_phi0_amp * 2.0_dl
-            if (phi_try_expand >= phi_large) phi_try_expand = phi_large - abs(phi_large*0.1_dl) - 1.0e-6_dl
-
-            if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: omega_zero_test > target. Walking NEGATIVE phi from try=", phi_try_expand
-            do current_expand_step = 1, max_expand_steps
-                initial_phidot = astart * this%phidot_start(phi_try_expand)
-                omega_try_expand = this%GetOmegaFromInitial(astart, phi_try_expand, initial_phidot, atol)
-                if (this%DebugLevel > 0) write(*,*) 'DEBUG ADAPTIVE (expand -): step=', current_expand_step, ' phi=', phi_try_expand, ' Omega=', omega_try_expand
-                if (omega_try_expand < this%state%Omega_de) then
-                    phi_small = phi_try_expand
-                    om_small  = omega_try_expand
-                    OK = .true.
-                    if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE (expand -): Bracket found [", phi_small, ",", phi_large, "]"
-                    exit
-                else
-                    if (phi_try_expand < phi_large .and. omega_try_expand < om_large) then 
-                        phi_large = phi_try_expand
-                        om_large  = omega_try_expand
-                    else if (phi_try_expand < phi_large .and. om_large < this%state%Omega_de) then ! if previous phi_large overshot
-                        phi_large = phi_try_expand
-                        om_large = omega_try_expand
-                    endif
-                    phi_try_expand = phi_try_expand * 2.0_dl 
-                    if (phi_try_expand >= phi_large) phi_try_expand = phi_large * 1.5_dl - 1.0e-5_dl
-                end if
-            end do
-        end if
-        if (.not. OK) then
-            if (this%DebugLevel > 0) write(*,*) 'WARNING ADAPTIVE: Expansion did not bracket in ', max_expand_steps, ' steps.'
-            this%init_failed_flag = .true.
-        end if
-    end if
-
-    if (this%init_failed_flag) then
-        if (this%DebugLevel > 0) write(*,*) 'TEarlyQuintessence_Init: Adaptive bracketing failed. Returning.'
-        return
-    end if
-
-    ! Ensure phi_small < phi_large for bisection
-    if (phi_small > phi_large) then
-        if (this%DebugLevel > 0) write(*,*) "DEBUG ADAPTIVE: Swapping (phi_small,om_small) with (phi_large,om_large) for bisection."
-        phi_try_expand = phi_small; phi_small = phi_large; phi_large = phi_try_expand ! Use a temp var not used in loop
-        omega_try_expand = om_small; om_small = om_large; om_large = omega_try_expand ! Use a temp var not used in loop
-    end if
-
-    current_phi_low = phi_small
-    current_om_low  = om_small
-    current_phi_high = phi_large
-    current_om_high  = om_large
-
-    if (this%DebugLevel > 0) then
-        write(*,*) "DEBUG ADAPTIVE: Final bracket for bisection: phi_low=", current_phi_low, " om_low=", current_om_low, &
-                   " phi_high=", current_phi_high, " om_high=", current_om_high
-    end if
-
-    ! Final check of the bracket before bisection
-    if (.not. ((current_om_low - this%state%Omega_de) * (current_om_high - this%state%Omega_de) < 0.0_dl) ) then
-        if (this%DebugLevel > 0) then
-            write(*,*) 'TEarlyQuintessence_Init: Final Adaptive Bracket is NOT valid for bisection.'
-            write(*,*) '  phi_low =', current_phi_low, '  om_low =', current_om_low
-            write(*,*) '  phi_high =', current_phi_high, '  om_high =', current_om_high
-            write(*,*) '  Target Omega_de: ', this%state%Omega_de
-            ! Add detailed debug prints for this specific failure case (optional, can be verbose)
-            print *, "DEBUG (Invalid Bisection Bracket Check): V0 (potentialparam1) = ", this%potentialparams(1)
-            print *, "DEBUG (Invalid Bisection Bracket Check): grhocrit (from CAMB state) = ", this%State%grhocrit
-        end if
-        this%init_failed_flag = .true.
-        return
-    end if
-
-    ! 3) Bisection to find the root (sets 'initial_phi')
-    max_bisection_iter = 100  
-    bisection_tol_phi = 1.d-7         
-    bisection_tol_omega = this%omega_tol
-
-    OK = .false. ! Reset for bisection convergence status
-
-    if (abs(current_om_low - this%state%Omega_de) < bisection_tol_omega) then
-        initial_phi = current_phi_low
-        OK = .true.
-        if (this%DebugLevel > 0) write(*,*) 'Bisection Converged (low bound is solution): initial_phi = ', initial_phi, ' Omega = ', current_om_low
-    else if (abs(current_om_high - this%state%Omega_de) < bisection_tol_omega) then
-        initial_phi = current_phi_high
-        OK = .true.
-        if (this%DebugLevel > 0) write(*,*) 'Bisection Converged (high bound is solution): initial_phi = ', initial_phi, ' Omega = ', current_om_high
-    end if
-
-    if (.not. OK) then 
-        do iter = 1, max_bisection_iter 
-            phi_mid_bisect = (current_phi_low + current_phi_high) / 2.0_dl
-            
-            if (phi_mid_bisect == current_phi_low .or. phi_mid_bisect == current_phi_high) then
-                if (this%DebugLevel > 0) write(*,*) 'Bisection interval too small or phi_mid_bisect stuck at iter=', iter,'. Taking current mid.'
-                initial_phi = phi_mid_bisect 
-                OK = .true.
-                exit
-            endif
-
-            initial_phidot = astart * this%phidot_start(phi_mid_bisect)
-            om_mid_bisect = this%GetOmegaFromInitial(astart, phi_mid_bisect, initial_phidot, atol)
-
-            if (this%DebugLevel > 1) then
-                 write(*,*) 'Bisection Iter:', iter, ' Trying phi_mid =', phi_mid_bisect, ' om_mid=', om_mid_bisect, &
-                            ' Bracket [',current_phi_low,',',current_phi_high,'] om_bracket [',current_om_low,',',current_om_high,']'
-            end if
-
-            if (abs(om_mid_bisect - this%state%Omega_de) < bisection_tol_omega .or. &
-                abs(current_phi_high - current_phi_low)/2.0_dl < bisection_tol_phi * max(1.0_dl, abs(phi_mid_bisect))) then
-                initial_phi = phi_mid_bisect 
-                OK = .true.
-                if (this%DebugLevel > 0) then
-                    write(*,*) 'Bisection Converged: final initial_phi = ', initial_phi,  &
-                               ' Omega_de(phi) = ', om_mid_bisect, ' Target Omega_de = ', this%state%Omega_de, ' Iterations: ', iter
-                end if
-                exit
-            end if
-
-            if ((om_mid_bisect - this%state%Omega_de) * (current_om_low - this%state%Omega_de) > 0.0_dl) then
-                current_phi_low = phi_mid_bisect 
-                current_om_low = om_mid_bisect
-            else
-                current_phi_high = phi_mid_bisect 
-                current_om_high = om_mid_bisect
-            end if
-        end do 
-
-        if (.not. OK) then
-             initial_phi = (current_phi_low + current_phi_high) / 2.0_dl 
-             if (this%DebugLevel > 0) then
-                 write(*,*) 'TEarlyQuintessence_Init: Bisection for initial_phi did not converge. Taking midpoint as best guess.'
-                 write(*,*) '  Final initial_phi = ', initial_phi
-                 write(*,*) '  Last bracket: [phi_low, Omega_low] = [', current_phi_low, ',', current_om_low, ']'
-                 write(*,*) '                [phi_high, Omega_high]= [', current_phi_high, ',', current_om_high, ']'
-             end if
-        end if
-    end if 
-    ! --- End of NEW ADAPTIVE BRACKETING AND BISECTION ---
+    ! Set initial conditions to give correct Omega_de now
+    !   - The initial window is important because it needs to encompass the correct value (assuming there is only one, but it may not be true)
+    initial_phi  = -10._dl  !   - Remember that this is in Mpl
+    initial_phi2 = 10._dl  ! Upper bound should be large enough but we don't need 1000
     
-    !initial_phi = 1.d-3 ! Old test value
-    !initial_phi = 1d-5 ! Old test value
+    initial_phidot =  astart*this%phidot_start(initial_phi)
+    om1= this%GetOmegaFromInitial(astart,initial_phi,initial_phidot, atol)
+
+    initial_phidot = astart*this%phidot_start(initial_phi2)
+    om2= this%GetOmegaFromInitial(astart,initial_phi2,initial_phidot, atol)
+    if (this%DebugLevel > 0) then
+        print*, 'Target omega_de: ', this%state%Omega_de
+        print*, 'First trial (phi=', initial_phi, '): Omega_de =', om1 
+        print*, 'Second trial (phi=', initial_phi2, '): Omega_de =', om2
+    end if
+    if (abs(om1 - this%state%Omega_de) > this%omega_tol) then 
+        ! If our initial guess is not good, enter the algorithm
+        OK=.false.
+        initial_phidot = astart*this%phidot_start(initial_phi2)
+        om2= this%GetOmegaFromInitial(astart,initial_phi2,initial_phidot, atol)
+
+        if ((om1 < this%state%Omega_de .and. om2 < this%state%Omega_de) .or. &
+		 (om1 > this%state%Omega_de .and. om2 > this%state%Omega_de)) then
+			! The bissection algorithm only works if one of the window boundaries is below the required value and
+			! the other is above the required value. If this is not the case, adjust the window.
+            if (this%DebugLevel > 0) then
+                write(*,*) 'TEarlyQuintessence_Init: Initial phi window does not bracket required Omega_de: ', this%state%Omega_de
+                write(*,*) 'om1 (for phi=', initial_phi, ') = ', om1 
+                write(*,*) 'om2 (for phi=', initial_phi2, ') = ', om2
+                print *, "DEBUG (Bracketing Failure): Mpc_in_sec  = ", Mpc_in_sec
+                print *, "DEBUG (Bracketing Failure): T_pl        = ", Tpl
+                print *, "DEBUG (Bracketing Failure): units       = ", units
+                print *, "DEBUG (Bracketing Failure): units*V0    = ", units * this%potentialparams(1)
+                print *, "DEBUG (Bracketing Failure): grhocrit (from CAMB state) = ", this%State%grhocrit
+            end if
+            this%init_failed_flag = .true.
+            return 
+        end if
+		
+		if (om1 < this%state%Omega_de) then
+			phi_small = initial_phi
+			om_small = om1
+			phi_large = initial_phi2
+			om_large = om2
+		else
+			phi_small = initial_phi2
+			om_small = om2
+			phi_large = initial_phi
+			om_large = om1
+		end if
+
+        do iter=1,300
+            deltaphi = phi_large - phi_small
+            phi = phi_small + deltaphi/2
+            if (this%DebugLevel > 0) then
+                print*, 'Iteration:', iter, 'Trying phi =', phi
+            end if
+            initial_phidot =  astart*this%phidot_start(phi)
+            om = this%GetOmegaFromInitial(astart,phi,initial_phidot,atol)
+            if (om < this%state%Omega_de) then
+                om_small=om
+                phi_small=phi
+            else
+                om_large=om
+                phi_large=phi
+            end if
+            if (abs(om_large-om_small) < 1d-3) then !   - The omega tolerance is 10^(-3)
+                OK=.true.
+                initial_phi = (phi_small + phi_large)/2
+                if (this%DebugLevel > 0) then
+                    write(*,*) 'phi_initial = ',initial_phi, 'omega = ', this%GetOmegaFromInitial(astart, initial_phi, 0._dl, atol)
+				end if !stop
+                exit
+            end if
+    
+        end do
+        if (.not. OK) then
+           if (this%DebugLevel > 0) then
+                write(*,*) 'TEarlyQuintessence_Init: Bisection for initial_phi did not converge.'
+                write(*,*) 'Last interval: [phi_small, om_small] = [', phi_small, ',', om_small, ']'
+                write(*,*) '               [phi_large, om_large] = [', phi_large, ',', om_large, ']'
+                write(*,*) 'Target Omega_de: ', this%state%Omega_de
+                print *, "DEBUG: Mpc_in_sec  = ", Mpc_in_sec   ! should be ≃1.02927e14
+                print *, "DEBUG: T_pl        = ", Tpl         ! should be ≃5.391e-44
+                print *, "DEBUG: units       = ", units        ! should be ≃3.645e114
+                print *, "DEBUG: V0          = ", this%potentialparams(1)           ! what you actually passed
+                print *, "DEBUG: units*V0    = ", units * this%potentialparams(1)    ! should be ≃3.3e-36
+                print *, "DEBUG: H0^2 (code) = ", this%State%grhocrit ! should be ≃4.7e-36
+           end if
+           this%init_failed_flag = .true.
+           return
+       end if
+    !YX end modified init function
+    end if ! Leaving binary search algorithm
+	!initial_phi = 1.d-3
+    !initial_phi = 1d-5 ! The code came with an initial value of 0.15Mpl
 
     if (this%init_failed_flag) then
         if (this%DebugLevel > 0) write(*,*) 'TEarlyQuintessence_Init: Returning early due to init_failed_flag.'
